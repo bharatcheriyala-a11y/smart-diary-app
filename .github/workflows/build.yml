@@ -6,14 +6,19 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java JDK
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -22,150 +27,27 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build Webview Android APK
+      - name: Create Web-to-APK Project
         run: |
-          # Create Android WebView project structure
-          mkdir -p app/src/main/assets
-          mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/mipmap-hdpi
-          mkdir -p app/src/main/java/com/smartdiary/app
+          mkdir -p www
+          # Copy html and icon
+          find . -maxdepth 2 -name "*.html" -exec cp {} www/index.html \;
+          find . -maxdepth 2 -name "*.png" -exec cp {} www/icon.png \;
 
-          # Copy website files to Android assets
-          if [ -d "Smart diary" ]; then
-            cp -r "Smart diary"/* app/src/main/assets/ || true
-          fi
-          if [ -f "index.html" ]; then
-            cp index.html app/src/main/assets/ || true
-          fi
+          # Install official Capacitor
+          npm init -y
+          npm install @capacitor/core@5.7.0 @capacitor/cli@5.7.0 @capacitor/android@5.7.0
+          npx cap init "Smart Diary" "com.bharat.smartdiary" --web-dir www
+          npx cap add android
 
-          # Root build.gradle
-          cat << 'EOF' > build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
-          # settings.gradle
-          cat << 'EOF' > settings.gradle
-          include ':app'
-          rootProject.name = "SmartDiary"
-          EOF
-
-          # gradle.properties
-          cat << 'EOF' > gradle.properties
-          android.useAndroidX=true
-          EOF
-
-          # app/build.gradle
-          cat << 'EOF' > app/build.gradle
-          plugins {
-              id 'com.android.application'
-          }
-          android {
-              namespace 'com.smartdiary.app'
-              compileSdk 34
-              defaultConfig {
-                  applicationId "com.smartdiary.app"
-                  minSdk 21
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
-              }
-          }
-          EOF
-
-          # AndroidManifest.xml
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <application
-                  android:allowBackup="true"
-                  android:label="@string/app_name"
-                  android:supportsRtl="true"
-                  android:theme="@android:style/Theme.NoTitleBar">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:configChanges="orientation|screenSize|keyboardHidden">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
-
-          # strings.xml
-          cat << 'EOF' > app/src/main/res/values/strings.xml
-          <resources>
-              <string name="app_name">Smart Diary</string>
-          </resources>
-          EOF
-
-          # MainActivity.java (Pure Native Clean WebView with NO POPUPS)
-          cat << 'EOF' > app/src/main/java/com/smartdiary/app/MainActivity.java
-          package com.smartdiary.app;
-
-          import android.app.Activity;
-          import android.os.Bundle;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
-
-          public class MainActivity extends Activity {
-              private WebView webView;
-
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  webView = new WebView(this);
-                  WebSettings settings = webView.getSettings();
-                  settings.setJavaScriptEnabled(true);
-                  settings.setDomStorageEnabled(true);
-                  settings.setDatabaseEnabled(true);
-                  webView.setWebViewClient(new WebViewClient());
-                  webView.loadUrl("file:///android_asset/index.html");
-                  setContentView(webView);
-              }
-
-              @Override
-              public void onBackPressed() {
-                  if (webView.canGoBack()) {
-                      webView.goBack();
-                  } else {
-                      super.onBackPressed();
-                  }
-              }
-          }
-          EOF
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Build Official APK with Gradle
-        run: gradle assembleDebug
-
-      - name: Upload Clean SmartDiary APK
+      - name: Upload Official Clean APK
         uses: actions/upload-artifact@v4
         with:
-          name: SmartDiary-Clean-Official-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SmartDiary-Official-Clean-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
