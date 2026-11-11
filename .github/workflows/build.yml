@@ -1,0 +1,53 @@
+name: Build Clean Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare Android Project
+        run: |
+          mkdir -p www
+          # Copy website files to www folder
+          if [ -d "Smart diary" ]; then
+            cp -r "Smart diary"/* www/ || true
+          fi
+          if [ -f "index.html" ]; then
+            cp index.html www/ || true
+          fi
+          # Install official Capacitor CLI
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init "Smart Diary" "com.bharat.smartdiary" --web-dir www
+          npx cap add android
+
+      - name: Build Android APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload Clean APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartDiary-Clean-Official-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
