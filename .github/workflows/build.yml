@@ -16,38 +16,156 @@ jobs:
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Prepare Android Project
+      - name: Build Webview Android APK
         run: |
-          mkdir -p www
-          # Copy website files to www folder
+          # Create Android WebView project structure
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/java/com/smartdiary/app
+
+          # Copy website files to Android assets
           if [ -d "Smart diary" ]; then
-            cp -r "Smart diary"/* www/ || true
+            cp -r "Smart diary"/* app/src/main/assets/ || true
           fi
           if [ -f "index.html" ]; then
-            cp index.html www/ || true
+            cp index.html app/src/main/assets/ || true
           fi
-          # Install official Capacitor CLI
-          npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Smart Diary" "com.bharat.smartdiary" --web-dir www
-          npx cap add android
 
-      - name: Build Android APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          # Root build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
 
-      - name: Upload Clean APK Artifact
+          # settings.gradle
+          cat << 'EOF' > settings.gradle
+          include ':app'
+          rootProject.name = "SmartDiary"
+          EOF
+
+          # gradle.properties
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          EOF
+
+          # app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.smartdiary.app'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.smartdiary.app"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+          EOF
+
+          # AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.NoTitleBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # strings.xml
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Smart Diary</string>
+          </resources>
+          EOF
+
+          # MainActivity.java (Pure Native Clean WebView with NO POPUPS)
+          cat << 'EOF' > app/src/main/java/com/smartdiary/app/MainActivity.java
+          package com.smartdiary.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.loadUrl("file:///android_asset/index.html");
+                  setContentView(webView);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Official APK with Gradle
+        run: gradle assembleDebug
+
+      - name: Upload Clean SmartDiary APK
         uses: actions/upload-artifact@v4
         with:
           name: SmartDiary-Clean-Official-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
